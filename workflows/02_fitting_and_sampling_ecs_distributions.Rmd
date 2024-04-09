@@ -76,3 +76,43 @@ colnames(ecs_sample_df) <- names(ecs_sample_list)
 saveRDS(ecs_sample_df, "data/ecs_samples_from_gamma_distribution.RDS")
 ```
 
+# Visualize Simulated Samples
+
+```{r}
+library(ggplot2)
+```
+
+Once the ECS samples are produced and stored in a list of data frames (`ecs_sample_list`), we visualize the sample distribution with `ggplot2`.
+
+Before working in `ggplot2`, we build a single data frame with all samples and the name of the evidence configurations fro each sample to make it easier to plot. 
+
+We complete this by creating a new data frame `ecs_samples_df` from elements in `ecs_sample_list`. 
+
+In the data frame `value` contains the unlisted ECS samples from `ecs_sample_list`. This combines the vectors of each element in `ecs_sample_list` into a single vector under the `value` column.
+The `evidence` column repeats names of each element in `ecs_sample_list` `n` times. Note: `n` is set to 15,000 for each evidence combination. We remove row names to ensure a clean result.
+
+```{r}
+ecs_samples_df <- data.frame(
+  
+  value = unlist(ecs_sample_list),
+  evidence = rep(names(ecs_sample_list), each = n),
+  row.names = NULL
+  
+)
+```
+
+The result is a data frame that combines ECS values sampled from gamma distributions for each evidence configuration (15,000 samples x 5 evidence scenarios = 75,000 rows). Each row is labeled with the name of the evidence configuration the value belongs to.   
+
+Plot ECS samples as a`geom_density` with faceted by `evidence`. We use `geom_density()` to plot with desired scale (`scale_x_continuous`) and facet figure by `evidence` (evidence configuration name) to produce a multi-pane figure. 
+
+```{r}
+ggplot() +
+  geom_density(data = ecs_samples_df,
+               aes(x = value, 
+                   color = evidence)) +
+  theme_light() +
+  scale_x_continuous(breaks = seq(from = 0, to = 10, 
+                                  by = 1)) +
+  facet_wrap(~ evidence)
+
+```
