@@ -67,15 +67,6 @@ ecs_sample_list <- lapply(hyper_param_list, function(evidence) {
 
 The result is a new list (`ecs_sample_list`) of data frames, one for each evidence scenario, that contains a vector of ECS values sampled from respective gamma distributions. 
 
-We save convert these samples as a data frame and save them in the `data` directory:
-
-```{r}
-ecs_sample_df <- data.frame(ecs_sample_list)
-colnames(ecs_sample_df) <- names(ecs_sample_list)
-
-saveRDS(ecs_sample_df, "data/ecs_samples_from_gamma_distribution.RDS")
-```
-
 # Visualize Simulated Samples
 
 ```{r}
@@ -99,6 +90,9 @@ ecs_samples_df <- data.frame(
   row.names = NULL
   
 )
+
+# save data for supplemental figure script
+saveRDS(ecs_samples_df, "data/ecs_samples_from_gamma_distribution.RDS")
 ```
 
 The result is a data frame that combines ECS values sampled from gamma distributions for each evidence configuration (15,000 samples x 5 evidence scenarios = 75,000 rows). Each row is labeled with the name of the evidence configuration the value belongs to.   
