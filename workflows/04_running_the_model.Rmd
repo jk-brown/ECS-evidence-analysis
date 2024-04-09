@@ -1,0 +1,43 @@
+---
+title: "Using ECS sample to run matilda"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Goal
+
+The goal of this script is to run Matilda with each of the ECS distributions we sampled prior. 
+
+# Using ECS samples to run Matilda
+
+We use ECS values sampled from the estimated parameteric distributions from S20 to propagate the varying levels of uncertainty associated with evidence configurations to probabilistic climate projections. This provides an oppotunity to better understand how different ECS evidence configurations affect temperature tragectories from a simple carbon cycle climate model. 
+
+We use the SSP2-4.5 emission scenario to run the model with the perturbed ECS samples.
+
+```{r}
+# read in ecs samples as a list
+ecs_sample_list <- as.list(readRDS("workflows/data/ecs_data_S20_supplement.RDS"))
+
+# read in scenario input file (ini)
+ini_245 <- system.file("input/hector_ssp245.ini", package = "hector")
+
+```
+
+The scenario input file is used to initaite a `core` environment for Hector. Hector is the simple carbon-cycle climate model that is the engine behind Matildas prbabilistic projection framework. More details about Hector and its useage, visit the [Hecotor GitHub page](https://jgcri.github.io/hector/).
+
+```{r}
+# initiate model core
+core <- newcore(ini_245)
+
+```
+
+The result will be a new core object that can will be a required input to run the model. 
+
+# Generate values for other model parameters
+
+Matilda works by running Hector multiple times to build a perturbed parameter ensemble, thus applying parameter uncertainty to model outputs. We need to produce parameter values to accompany the ECS values we sampled in previous steps of the workflow.
+
+Parameter sets are generated in Matilda using `generate_params`. We use this function to produce `n` initial parameter sets (`init_params`).  
