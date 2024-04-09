@@ -11,6 +11,11 @@ knitr::opts_chunk$set(echo = TRUE)
 
 The goal of this script is to run Matilda with each of the ECS distributions we sampled prior. 
 
+```{r}
+library(matilda)
+library(parallel)
+```
+
 # Using ECS samples to run Matilda
 
 We use ECS values sampled from the estimated parameteric distributions from S20 to propagate the varying levels of uncertainty associated with evidence configurations to probabilistic climate projections. This provides an oppotunity to better understand how different ECS evidence configurations affect temperature tragectories from a simple carbon cycle climate model. 
