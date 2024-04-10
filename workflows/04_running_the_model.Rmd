@@ -13,6 +13,7 @@ The goal of this script is to run Matilda with each of the ECS distributions we 
 
 ```{r}
 library(matilda)
+options(matilda.verbose = FALSE)
 library(parallel)
 ```
 
@@ -24,7 +25,7 @@ We use the SSP2-4.5 emission scenario to run the model with the perturbed ECS sa
 
 ```{r}
 # read in ecs samples as a list
-ecs_sample_list <- as.list(readRDS("workflows/data/ecs_data_S20_supplement.RDS"))
+ecs_sample_list <- as.list(readRDS("data/ecs_samples_from_gamma_dist.RDS"))
 
 # read in scenario input file (ini)
 ini_245 <- system.file("input/hector_ssp245.ini", package = "hector")
@@ -46,3 +47,41 @@ The result will be a new core object that can will be a required input to run th
 Matilda works by running Hector multiple times to build a perturbed parameter ensemble, thus applying parameter uncertainty to model outputs. We need to produce parameter values to accompany the ECS values we sampled in previous steps of the workflow.
 
 Parameter sets are generated in Matilda using `generate_params`. We use this function to produce `n` initial parameter sets (`init_params`).  
+
+```{r}
+# set seed for reproducible result
+set.seed(123)
+
+# sample size (should match ECS sample)
+n = 15000
+
+# generate parameters
+init_params <- generate_params(core = core, draws = n)
+
+```
+
+The result will be a new data frame object with 15,000 samples for 6 parameters.
+
+*NOTE*: This data frame includes a column for `ECS`. These are samples drawn from the default prior distribution in Matilda, not the distributions selected for this analysis. 
+
+We replace the default generated `ECS` values with the values we sampled from S20 distributions. This gives us a set of model parameters that are identical except for the `ECS` column, which isolates the impact of propagating `ECS` uncertainty through the model. 
+
+```{r}
+# create a list of parameter data frames based on ECS samples in ecs_samnple_list
+parameter_list <- lapply(ecs_sample_list, function(data) {
+  
+  # copy init_params
+  params_no_ecs <- init_params
+  
+  # remove the ECS column from the parameter data frame
+  params_no_ecs$ECS <- NULL
+  
+  # add sampled S20 ecs values
+  cbind(data, params_no_ecs)
+  
+})
+
+# run a check by inspecting a data frame
+test <- list(parameter_list$Baseline)
+```
+
