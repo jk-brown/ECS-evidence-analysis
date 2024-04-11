@@ -32,7 +32,7 @@ ini_245 <- system.file("input/hector_ssp245.ini", package = "hector")
 
 ```
 
-The scenario input file is used to initaite a `core` environment for Hector. Hector is the simple carbon-cycle climate model that is the engine behind Matildas prbabilistic projection framework. More details about Hector and its useage, visit the [Hecotor GitHub page](https://jgcri.github.io/hector/).
+The scenario input file is used to initaite a `core` environment for Hector. Hector is the simple carbon-cycle climate model that is the engine behind Matilda's probabilistic projection framework. More details about Hector and its useage, visit the [Hecotor GitHub page](https://jgcri.github.io/hector/).
 
 ```{r}
 # initiate model core
@@ -53,7 +53,7 @@ Parameter sets are generated in Matilda using `generate_params`. We use this fun
 set.seed(123)
 
 # sample size (should match ECS sample)
-n = 15000
+n = 10000
 
 # generate parameters
 init_params <- generate_params(core = core, draws = n)
@@ -67,8 +67,8 @@ The result will be a new data frame object with 15,000 samples for 6 parameters.
 We replace the default generated `ECS` values with the values we sampled from S20 distributions. This gives us a set of model parameters that are identical except for the `ECS` column, which isolates the impact of propagating `ECS` uncertainty through the model. 
 
 ```{r}
-# create a list of parameter data frames based on ECS samples in ecs_samnple_list
-parameter_list <- lapply(ecs_sample_list, function(data) {
+# create a list of parameter data frames based on ECS samples in ecs_sample_list
+parameter_list <- lapply(ecs_sample_list, function(ECS) {
   
   # copy init_params
   params_no_ecs <- init_params
@@ -77,11 +77,86 @@ parameter_list <- lapply(ecs_sample_list, function(data) {
   params_no_ecs$ECS <- NULL
   
   # add sampled S20 ecs values
-  cbind(data, params_no_ecs)
+  cbind(ECS, params_no_ecs)
   
 })
 
-# run a check by inspecting a data frame
-test <- list(parameter_list$Baseline)
 ```
 
+The result is a list of parameter sets named after the evidence configuration used to produce the ECS values. 
+
+# Run the model 
+
+We use each of the parameter sets in `parameter_list` to run the model. This produces a single Hector run for each of the 15,000 parameter sets per each ECS evidence configuration (15,000 x 5 = 75,000 total model runs).
+
+Parallel computing on the local machine is used to make this process as efficient as possible. 
+
+```{r}
+# split the parameters into chunks for each 'worker'
+parameter_chunks_by_scenario <- lapply(parameter_list, function(df) {
+  
+  split(df, 1:100)
+  
+})
+
+# detect cores 
+detectCores()
+
+# initiate a cluster
+cl <- makeCluster(detectCores() - 1)
+
+# export required functions and objects to run the model
+clusterExport(cl, c("parameter_chunks_by_scenario",
+                    "ini_245",
+                    "newcore",
+                    "reset",
+                    "iterate_model"))
+# start time
+start_time <- Sys.time()
+
+# run the model with parLapply
+model_result <- parLapply(cl, parameter_chunks_by_scenario, function(evidence_scenario) {
+  
+  # initialize a model core for each loop iteration
+  core <- newcore(ini_245)
+  
+  # run the model for each parameter chunk
+  result_list <- lapply(evidence_scenario, function(chunk) {
+    
+    iterate_model(core = core,
+                  params = chunk,
+                  save_years = 1800:2100,
+                  save_vars = c("gmst", 
+                                "CO2_concentration", 
+                                "ocean_uptake"))
+  })
+
+  # ensure correct run_number added to each parameter chunk
+  for (i in 2:length(result_list)) {
+
+    # calculate the max value of the previous element in result_list
+    max_run_number <- max(result_list[[i - 1]]$run_number)
+
+    # add the max value of the previous element to the run_number of the current
+    # element to get a run_number that is continuous from the previous element.
+    result_list[[i]]$run_number <- result_list[[i]]$run_number + max_run_number
+  }
+  
+  # bind parameter_chunks
+  result <- do.call(rbind, result_list)
+  
+  return(result)
+})
+
+# Stop time
+run_time <- Sys.time() - start_time
+print(run_time)
+
+# stop the cluster
+stopCluster(cl)
+
+# save the result
+saveRDS(model_result, "data/raw_unweighted_model_results.RDS")
+```
+
+The result is `model_result` a list of Matilda outputs, one for each `ECS` configuration. Each result in the list contains 10,000 Hector runs using the parameters from prior steps for the years and variables identified in `iterate_model`. 
