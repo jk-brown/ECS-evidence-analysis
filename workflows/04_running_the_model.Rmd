@@ -15,7 +15,6 @@ The goal of this script is to run Matilda with each of the ECS distributions we 
 library(matilda)
 options(matilda.verbose = FALSE)
 library(parallel)
-library(tidyverse)
 ```
 
 # Using ECS samples to run Matilda
@@ -247,5 +246,7 @@ weighted_model_results <- lapply(names(weighted_model_results), function(df_name
 # bind elements of the model_result list to produce single data frame
 weighted_result_df <- do.call(rbind, weighted_model_results)
 
+# save weighted data frame in data directory
+saveRDS(weighted_result_df, "data/weighted_model_results.RDS")
 ```
 
