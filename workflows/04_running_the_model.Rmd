@@ -15,6 +15,7 @@ The goal of this script is to run Matilda with each of the ECS distributions we 
 library(matilda)
 options(matilda.verbose = FALSE)
 library(parallel)
+library(tidyverse)
 ```
 
 # Using ECS samples to run Matilda
@@ -158,5 +159,84 @@ stopCluster(cl)
 # save the result
 saveRDS(model_result, "data/raw_unweighted_model_results.RDS")
 ```
+This can take ~8 hours to run 50,000 model iterations (10,000 runs x 5 scenarios).
 
 The result is `model_result` a list of Matilda outputs, one for each `ECS` configuration. Each result in the list contains 10,000 Hector runs using the parameters from prior steps for the years and variables identified in `iterate_model`. 
+
+# Weight model runs
+
+After the model is run, we weight the models using inbuilt criterion (observed CO2 concentration and observed global mean surface temperature). It is possible to also add other criterion, for example we may create a criterion with data for ocean carbon uptake. 
+
+```{r}
+# weight models using observed co2 and temp - store in a list
+model_init_weights <- lapply(model_result, function(df) {
+  
+  # produce weights based on co2
+  weights_co2 = score_runs(df, 
+                           criterion = criterion_co2_obs(),
+                          score_function = score_bayesian)
+  # omit any NAs
+  weights_co2 = na.omit(weights_co2)
+  
+  # produce weights based on temp
+  weights_temp = score_runs(df,
+                            criterion = criterion_gmst_obs(),
+                            score_function = score_bayesian)
+  # omit any NAs
+  weights_temp = na.omit(weights_temp)
+  
+  # store in a list 
+  list = list(weights_co2, weights_temp)
+  
+  return(list)
+  
+})
+```
+
+The result of this initial weighting step is a list of ECS configurations, each with a list of two data frames where weights are stored. The first data frame contains weights for each non-NA model using observed CO2 while the second data frame contains weights for each non-NA model using observed temperature data. We use the initial weights to run `multi_criteria_weighting` which computes a weight taking into account both the model likelihood based on observed temperature CO2 and the model likelihood based on observed temperature. 
+
+```{r}
+# compute weights combining both co2 and temp likelihood
+model_weights <- lapply(model_init_weights, function(weight_list) {
+  
+  # use mulit_criteria_weighting to produces a weights data frame for each scenario
+  weights_df <- multi_criteria_weighting(weight_list)
+  
+})
+```
+
+The result is a new list called `model_weights` which contains, in each ECS configuration element, a multi-criteria weight (`mc_weight`) for each non-NA model run.
+
+We merge model weights with the original result based on run number. This produces a list (based on ECS scenario) of the full model results and the assigned weights for each run.
+
+```{r}
+# combine weights with results data frame - use Map to fun function across elements of two lists
+weighted_model_results <- Map(
+  
+  # write function that take the result list and model_weights list
+  function(results, model_weights) {
+  
+  # merge results and model_weights by run_number
+  weighted_results = merge(results, model_weights, by = "run_number")
+  
+  # omit NAs from the result - these are models that produced an error during analysis
+  weighted_results = na.omit(weighted_results)
+  
+  return(weighted_results)
+  
+}, model_result, model_weights) # provide the lists to use in our defined Map function.
+
+```
+
+We combine the list of weighted results to produce a single, primary long-format data frame of all the ECS configuration scenarios we are interested in analyzing. 
+
+```{r}
+# rename the scenario column to match the name of the element
+model_result_test <- lapply(model_result, function(df) {
+  
+  # recode unnamed df to 
+    
+  
+}) 
+```
+
