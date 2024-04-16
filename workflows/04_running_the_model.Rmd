@@ -15,6 +15,7 @@ The goal of this script is to run Matilda with each of the ECS distributions we 
 library(matilda)
 options(matilda.verbose = FALSE)
 library(parallel)
+library(tidyverse)
 ```
 
 # Using ECS samples to run Matilda
@@ -227,14 +228,16 @@ weighted_model_results <- Map(
 
 ```
 
-We combine the list of weighted results to produce a single, primary long-format data frame of all the ECS configuration scenarios we are interested in analyzing. 
+We write a function here that combine the list of weighted results to produce a single, primary long-format data frame of all the ECS configuration scenarios we are interested in analyzing. This is a data frame we save an use to produce future figures. The function takes the list of weighted results, edits the scenario column to reflect the ECS configuration used to produce the result, binds the list to a data frame, and saves the data frame as a .RDS file in the data directory. 
 
 ```{r}
-# overwrite weighted_model_results to rename the scenario column to match the name of the element
-weighted_model_results <- lapply(names(weighted_model_results), function(df_name) {
+# Function to add a scenario column and save weighted model results
+results_to_save <- function(results, path = "data/new_weighted_data.RDS"){
+    
+  results <- lapply(names(results), function(df_name) {
   
   # get the data frame corresponding with the current element name
-  df <- weighted_model_results[[df_name]]
+  df <- results[[df_name]]
   
   # replace scenario values to match the name of the scenario
   df$scenario <- df_name
@@ -244,9 +247,60 @@ weighted_model_results <- lapply(names(weighted_model_results), function(df_name
 }) 
 
 # bind elements of the model_result list to produce single data frame
-weighted_result_df <- do.call(rbind, weighted_model_results)
+weighted_result_df <- do.call(rbind, results)
 
 # save weighted data frame in data directory
-saveRDS(weighted_result_df, "data/weighted_model_results.RDS")
+saveRDS(weighted_result_df, path)
+
+}
+
+results_to_save(weighted_model_results, "data/weighted_model_results.RDS")
+
 ```
 
+# Computing Metrics
+
+In addition to weighting, our results can be used to compute metrics. As defined in the Matilda software description paper, metrics determine what data the user is most interested in extracting and summarizing from the results data frame. In the case of this project, we are interested in extracting estimates of median end of century global mean surface temperature, or in other words `median gmst 2100`. This will allow us to use our probabilistic output to estimate how different ECS distributions influence end of century warming compared to a pre-industrial reference period.
+
+First, we define the metric we are interested in calculating.
+
+```{r}
+# define metric of interest - end of century (eoc) warming
+eoc_warming <- new_metric(var = GMST(), years = 2090:2100, op = median)
+
+```
+
+We use the newly defined metric object to compute median 2090-2100 warming for each ECS configuration scenario. Additionally, we add scenario names and merge weights for each model. 
+
+```{r}
+# build data frame of metric results
+eoc_warming_results <- lapply(names(weighted_model_results), function(df_name){
+  
+  # get data frame corresponding with the current element by name
+  df <- weighted_model_results[[df_name]]
+  
+  # get weights data corresponding with the current element by name
+  weights_df <- model_weights[[df_name]]
+  
+  # compute metrics for each df in the weighted model results list using eoc_warming metric object
+  metric_df <- metric_calc(df, eoc_warming)
+  
+  # add scenario column to metric_df 
+  metric_df$scenario <- df_name
+  
+  #merge weights with metric_df based on run_number
+  metric_df <- left_join(metric_df, weights_df, by = "run_number")
+  
+  return(metric_df)
+})
+
+# bind list eoc_warming_results to a data frame
+eoc_warming_df <- do.call(rbind, eoc_warming_results)
+
+# save the result for future 
+
+```
+
+The result is a list of data frames, one for each ECS configuration, with the model run_number, metric values, name of the scenario, and associated weight. 
+
+In the final step we convert the list of a data frame that can be used for future visualization.
