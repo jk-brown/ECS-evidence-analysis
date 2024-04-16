@@ -20,7 +20,7 @@ library(tidyverse)
 
 # Using ECS samples to run Matilda
 
-We use ECS values sampled from the estimated parameteric distributions from S20 to propagate the varying levels of uncertainty associated with evidence configurations to probabilistic climate projections. This provides an oppotunity to better understand how different ECS evidence configurations affect temperature tragectories from a simple carbon cycle climate model. 
+We use ECS values sampled from the estimated parametric distributions from S20 to propagate the varying levels of uncertainty associated with evidence configurations to probabilistic climate projections. This provides an opportunity to better understand how different ECS evidence configurations affect temperature trajectories from a simple carbon cycle climate model. 
 
 We use the SSP2-4.5 emission scenario to run the model with the perturbed ECS samples.
 
@@ -33,7 +33,7 @@ ini_245 <- system.file("input/hector_ssp245.ini", package = "hector")
 
 ```
 
-The scenario input file is used to initaite a `core` environment for Hector. Hector is the simple carbon-cycle climate model that is the engine behind Matilda's probabilistic projection framework. More details about Hector and its useage, visit the [Hecotor GitHub page](https://jgcri.github.io/hector/).
+The scenario input file is used to initiate a `core` environment for Hector. Hector is the simple carbon-cycle climate model that is the engine behind Matilda's probabilistic projection framework. More details about Hector and its usage, visit the [Hecotor GitHub page](https://jgcri.github.io/hector/).
 
 ```{r}
 # initiate model core
@@ -231,12 +231,21 @@ weighted_model_results <- Map(
 We combine the list of weighted results to produce a single, primary long-format data frame of all the ECS configuration scenarios we are interested in analyzing. 
 
 ```{r}
-# rename the scenario column to match the name of the element
-model_result_test <- lapply(model_result, function(df) {
+# overwrite weighted_model_results to rename the scenario column to match the name of the element
+weighted_model_results <- lapply(names(weighted_model_results), function(df_name) {
   
-  # recode unnamed df to 
-    
+  # get the data frame corresponding with the current element name
+  df <- weighted_model_results[[df_name]]
   
+  # replace scenario values to match the name of the scenario
+  df$scenario <- df_name
+  
+  # return the modified data frame
+  return(df)
 }) 
+
+# bind elements of the model_result list to produce single data frame
+weighted_result_df <- do.call(rbind, weighted_model_results)
+
 ```
 
