@@ -169,43 +169,34 @@ After the model is run, we weight the models using inbuilt criterion (observed C
 
 ```{r}
 # weight models using observed co2 and temp - store in a list
-model_init_weights <- lapply(model_result, function(df) {
+model_weights <- lapply(model_result, function(df) {
   
   # produce weights based on co2
   weights_co2 = score_runs(df, 
                            criterion = criterion_co2_obs(),
                           score_function = score_bayesian)
-  # omit any NAs
+  # omit NAs from co2 score result
   weights_co2 = na.omit(weights_co2)
   
   # produce weights based on temp
   weights_temp = score_runs(df,
                             criterion = criterion_gmst_obs(),
                             score_function = score_bayesian)
-  # omit any NAs
+  # omit NAs from temp score result 
   weights_temp = na.omit(weights_temp)
   
   # store in a list 
-  list = list(weights_co2, weights_temp)
+  weights_list = list(weights_co2, weights_temp)
   
-  return(list)
+  # compute multi-criteria weights
+  mc_weights = multi_criteria_weighting(weights_list)
   
-})
-```
-
-The result of this initial weighting step is a list of ECS configurations, each with a list of two data frames where weights are stored. The first data frame contains weights for each non-NA model using observed CO2 while the second data frame contains weights for each non-NA model using observed temperature data. We use the initial weights to run `multi_criteria_weighting` which computes a weight taking into account both the model likelihood based on observed temperature CO2 and the model likelihood based on observed temperature. 
-
-```{r}
-# compute weights combining both co2 and temp likelihood
-model_weights <- lapply(model_init_weights, function(weight_list) {
-  
-  # use mulit_criteria_weighting to produces a weights data frame for each scenario
-  weights_df <- multi_criteria_weighting(weight_list)
+  return(mc_weights)
   
 })
 ```
 
-The result is a new list called `model_weights` which contains, in each ECS configuration element, a multi-criteria weight (`mc_weight`) for each non-NA model run.
+The result of the weighting step is a list of ECS configurations, each with a data frame containing weights for each non-NA model using both observed CO2 and observed temperature data. We used the initial weights for each criterion individually to run `multi_criteria_weighting` which computes a weight taking into account both model weighting criterion. 
 
 We merge model weights with the original result based on run number. This produces a list (based on ECS scenario) of the full model results and the assigned weights for each run.
 
@@ -215,12 +206,9 @@ weighted_model_results <- Map(
   
   # write function that take the result list and model_weights list
   function(results, model_weights) {
-  
+    
   # merge results and model_weights by run_number
   weighted_results = merge(results, model_weights, by = "run_number")
-  
-  # omit NAs from the result - these are models that produced an error during analysis
-  weighted_results = na.omit(weighted_results)
   
   return(weighted_results)
   
@@ -276,31 +264,74 @@ We use the newly defined metric object to compute median 2090-2100 warming for e
 # build data frame of metric results
 eoc_warming_results <- lapply(names(weighted_model_results), function(df_name){
   
-  # get data frame corresponding with the current element by name
+  # extract data by name 
   df <- weighted_model_results[[df_name]]
-  
-  # get weights data corresponding with the current element by name
-  weights_df <- model_weights[[df_name]]
   
   # compute metrics for each df in the weighted model results list using eoc_warming metric object
   metric_df <- metric_calc(df, eoc_warming)
   
-  # add scenario column to metric_df 
+  # add scenario column
   metric_df$scenario <- df_name
-  
-  #merge weights with metric_df based on run_number
-  metric_df <- left_join(metric_df, weights_df, by = "run_number")
   
   return(metric_df)
 })
+# copy over element names 
+names(eoc_warming_results) <- names(model_weights)
+
+# Merge with model weights to get a data frame with weighted metrics
+weighted_eoc_warming_results <- Map(merge, eoc_warming_results, model_weights, by = "run_number")
 
 # bind list eoc_warming_results to a data frame
-eoc_warming_df <- do.call(rbind, eoc_warming_results)
+weighted_eoc_warming_df <- do.call(rbind, weighted_eoc_warming_results)
 
-# save the result for future 
+# save the result for future visualization
+saveRDS(weighted_eoc_warming_df, "data/weighted_warming_metrics.RDS")
 
 ```
 
-The result is a list of data frames, one for each ECS configuration, with the model run_number, metric values, name of the scenario, and associated weight. 
+We now have new objects as followed:
 
-In the final step we convert the list of a data frame that can be used for future visualization.
+1. `eoc_warming_results` - a list of data frames (one for each ECS scenario) that contain metric values for each `run_number`.
+
+2. `weighted_eco_warming_reuslts` - a list of data frames that is identical to `eoc_warming_results` but with an added column containing corresponding likelihood weights for each `run_number`.
+
+3. `weighted_eoc_warming_df` - a long data frame with all metrics and weights for each ECS scenario. This data frame is saved and will be used for visualization.
+
+# Computing Probabilities
+
+We compute probabilities using the likelihood weights and the warming metrics produced for each ECS scenario. The probability calculation sums weights (which total to 1.0) as warming metrics are grouped into bins we define. Here, bins represent ranges of warming that could potentially occur at the end of the century. In this way, the sum of the weights for each bin (warming range) is proportional to the probability of that warming range occurring according to the models response to parameter uncertainty. This step is where model weights become particularly important because a higher weight (representing closer alignment to historical data) will have a larger influence on the total probability of a warming range than an unskilled model (low likelihood based on alignment with historical data).
+
+To compute probabilities we call `prob_calc` for each of the data frame in the `weighted_eoc_warming_results` list.
+
+```{r}
+# define bins that represent the warming ranges of interest
+temp_ranges <- c(0, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, Inf)
+
+# computing probabilities 
+probability_results <- lapply(names(weighted_eoc_warming_results), function(df_name){
+  
+  # copy data based on element name
+  df <- weighted_eoc_warming_results[[df_name]]
+  
+  # run prob_calc
+  prob_result <- prob_calc(df$metric_result,
+                           bins = temp_ranges,
+                           scores = df$mc_weight)
+  
+  # add scenario column 
+  prob_result$scenario <- df_name
+  
+  return(prob_result)
+})
+# copy over element names 
+names(probability_results) <- names(weighted_eoc_warming_results)
+
+# bind probability_results into a data frame
+probability_results_df <- do.call(rbind, probability_results)
+
+# Save full data frame for future visualization
+saveRDS(probability_results_df, "data/probability_results.RDS")
+
+```
+
+The result from this code is an object called `probability_result`, a list of data frames (one for each ECS scenario) that contain the weighted temperature range probabilities. We bind the data frames in this list and save the single large data frame as an .RDS file in the `data` directory.
