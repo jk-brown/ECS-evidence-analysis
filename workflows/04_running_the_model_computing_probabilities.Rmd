@@ -1,0 +1,337 @@
+---
+title: "Using ECS sample to run matilda"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Goal
+
+The goal of this script is to run Matilda with each of the ECS distributions we sampled prior. 
+
+```{r}
+library(matilda)
+options(matilda.verbose = FALSE)
+library(parallel)
+library(tidyverse)
+```
+
+# Using ECS samples to run Matilda
+
+We use ECS values sampled from the estimated parametric distributions from S20 to propagate the varying levels of uncertainty associated with evidence configurations to probabilistic climate projections. This provides an opportunity to better understand how different ECS evidence configurations affect temperature trajectories from a simple carbon cycle climate model. 
+
+We use the SSP2-4.5 emission scenario to run the model with the perturbed ECS samples.
+
+```{r}
+# read in ecs samples as a list
+ecs_sample_list <- as.list(readRDS("data/ecs_samples_from_gamma_dist.RDS"))
+
+# read in scenario input file (ini)
+ini_245 <- system.file("input/hector_ssp245.ini", package = "hector")
+
+```
+
+The scenario input file is used to initiate a `core` environment for Hector. Hector is the simple carbon-cycle climate model that is the engine behind Matilda's probabilistic projection framework. More details about Hector and its usage, visit the [Hecotor GitHub page](https://jgcri.github.io/hector/).
+
+```{r}
+# initiate model core
+core <- newcore(ini_245)
+
+```
+
+The result will be a new core object that can will be a required input to run the model. 
+
+# Generate values for other model parameters
+
+Matilda works by running Hector multiple times to build a perturbed parameter ensemble, thus applying parameter uncertainty to model outputs. We need to produce parameter values to accompany the ECS values we sampled in previous steps of the workflow.
+
+Parameter sets are generated in Matilda using `generate_params`. We use this function to produce `n` initial parameter sets (`init_params`).  
+
+```{r}
+# set seed for reproducible result
+set.seed(123)
+
+# sample size (should match ECS sample)
+n = 10000
+
+# generate parameters
+init_params <- generate_params(core = core, draws = n)
+
+```
+
+The result will be a new data frame object with 15,000 samples for 6 parameters.
+
+*NOTE*: This data frame includes a column for `ECS`. These are samples drawn from the default prior distribution in Matilda, not the distributions selected for this analysis. 
+
+We replace the default generated `ECS` values with the values we sampled from S20 distributions. This gives us a set of model parameters that are identical except for the `ECS` column, which isolates the impact of propagating `ECS` uncertainty through the model. 
+
+```{r}
+# create a list of parameter data frames based on ECS samples in ecs_sample_list
+parameter_list <- lapply(ecs_sample_list, function(ECS) {
+  
+  # copy init_params
+  params_no_ecs <- init_params
+  
+  # remove the ECS column from the parameter data frame
+  params_no_ecs$ECS <- NULL
+  
+  # add sampled S20 ecs values
+  cbind(ECS, params_no_ecs)
+  
+})
+
+```
+
+The result is a list of parameter sets named after the evidence configuration used to produce the ECS values. 
+
+# Run the model 
+
+We use each of the parameter sets in `parameter_list` to run the model. This produces a single Hector run for each of the 15,000 parameter sets per each ECS evidence configuration (15,000 x 5 = 75,000 total model runs).
+
+Parallel computing on the local machine is used to make this process as efficient as possible. 
+
+```{r}
+# split the parameters into chunks for each 'worker'
+parameter_chunks_by_scenario <- lapply(parameter_list, function(df) {
+  
+  split(df, 1:100)
+  
+})
+
+# detect cores 
+detectCores()
+
+# initiate a cluster
+cl <- makeCluster(detectCores() - 1)
+
+# export required functions and objects to run the model
+clusterExport(cl, c("parameter_chunks_by_scenario",
+                    "ini_245",
+                    "newcore",
+                    "reset",
+                    "iterate_model"))
+# start time
+start_time <- Sys.time()
+
+# run the model with parLapply
+model_result <- parLapply(cl, parameter_chunks_by_scenario, function(evidence_scenario) {
+  
+  # initialize a model core for each loop iteration
+  core <- newcore(ini_245)
+  
+  # run the model for each parameter chunk
+  result_list <- lapply(evidence_scenario, function(chunk) {
+    
+    iterate_model(core = core,
+                  params = chunk,
+                  save_years = 1800:2100,
+                  save_vars = c("gmst", 
+                                "CO2_concentration", 
+                                "ocean_uptake"))
+  })
+
+  # ensure correct run_number added to each parameter chunk
+  for (i in 2:length(result_list)) {
+
+    # calculate the max value of the previous element in result_list
+    max_run_number <- max(result_list[[i - 1]]$run_number)
+
+    # add the max value of the previous element to the run_number of the current
+    # element to get a run_number that is continuous from the previous element.
+    result_list[[i]]$run_number <- result_list[[i]]$run_number + max_run_number
+  }
+  
+  # bind parameter_chunks
+  result <- do.call(rbind, result_list)
+  
+  return(result)
+})
+
+# Stop time
+run_time <- Sys.time() - start_time
+print(run_time)
+
+# stop the cluster
+stopCluster(cl)
+
+# save the result
+saveRDS(model_result, "data/raw_unweighted_model_results.RDS")
+```
+This can take ~8 hours to run 50,000 model iterations (10,000 runs x 5 scenarios).
+
+The result is `model_result` a list of Matilda outputs, one for each `ECS` configuration. Each result in the list contains 10,000 Hector runs using the parameters from prior steps for the years and variables identified in `iterate_model`. 
+
+# Weight model runs
+
+After the model is run, we weight the models using inbuilt criterion (observed CO2 concentration and observed global mean surface temperature). It is possible to also add other criterion, for example we may create a criterion with data for ocean carbon uptake. 
+
+```{r}
+# weight models using observed co2 and temp - store in a list
+model_weights <- lapply(model_result, function(df) {
+  
+  # produce weights based on co2
+  weights_co2 = score_runs(df, 
+                           criterion = criterion_co2_obs(),
+                          score_function = score_bayesian)
+  # omit NAs from co2 score result
+  weights_co2 = na.omit(weights_co2)
+  
+  # produce weights based on temp
+  weights_temp = score_runs(df,
+                            criterion = criterion_gmst_obs(),
+                            score_function = score_bayesian)
+  # omit NAs from temp score result 
+  weights_temp = na.omit(weights_temp)
+  
+  # store in a list 
+  weights_list = list(weights_co2, weights_temp)
+  
+  # compute multi-criteria weights
+  mc_weights = multi_criteria_weighting(weights_list)
+  
+  return(mc_weights)
+  
+})
+```
+
+The result of the weighting step is a list of ECS configurations, each with a data frame containing weights for each non-NA model using both observed CO2 and observed temperature data. We used the initial weights for each criterion individually to run `multi_criteria_weighting` which computes a weight taking into account both model weighting criterion. 
+
+We merge model weights with the original result based on run number. This produces a list (based on ECS scenario) of the full model results and the assigned weights for each run.
+
+```{r}
+# combine weights with results data frame - use Map to fun function across elements of two lists
+weighted_model_results <- Map(
+  
+  # write function that take the result list and model_weights list
+  function(results, model_weights) {
+    
+  # merge results and model_weights by run_number
+  weighted_results = merge(results, model_weights, by = "run_number")
+  
+  return(weighted_results)
+  
+}, model_result, model_weights) # provide the lists to use in our defined Map function.
+
+```
+
+We write a function here that combine the list of weighted results to produce a single, primary long-format data frame of all the ECS configuration scenarios we are interested in analyzing. This is a data frame we save an use to produce future figures. The function takes the list of weighted results, edits the scenario column to reflect the ECS configuration used to produce the result, binds the list to a data frame, and saves the data frame as a .RDS file in the data directory. 
+
+```{r}
+# Function to add a scenario column and save weighted model results
+results_to_save <- function(results, path = "data/new_weighted_data.RDS"){
+    
+  results <- lapply(names(results), function(df_name) {
+  
+  # get the data frame corresponding with the current element name
+  df <- results[[df_name]]
+  
+  # replace scenario values to match the name of the scenario
+  df$scenario <- df_name
+  
+  # return the modified data frame
+  return(df)
+}) 
+
+# bind elements of the model_result list to produce single data frame
+weighted_result_df <- do.call(rbind, results)
+
+# save weighted data frame in data directory
+saveRDS(weighted_result_df, path)
+
+}
+
+results_to_save(weighted_model_results, "data/weighted_model_results.RDS")
+
+```
+
+# Computing Metrics
+
+In addition to weighting, our results can be used to compute metrics. As defined in the Matilda software description paper, metrics determine what data the user is most interested in extracting and summarizing from the results data frame. In the case of this project, we are interested in extracting estimates of median end of century global mean surface temperature, or in other words `median gmst 2100`. This will allow us to use our probabilistic output to estimate how different ECS distributions influence end of century warming compared to a pre-industrial reference period.
+
+First, we define the metric we are interested in calculating.
+
+```{r}
+# define metric of interest - end of century (eoc) warming
+eoc_warming <- new_metric(var = GMST(), years = 2090:2100, op = median)
+
+```
+
+We use the newly defined metric object to compute median 2090-2100 warming for each ECS configuration scenario. Additionally, we add scenario names and merge weights for each model. 
+
+```{r}
+# build data frame of metric results
+eoc_warming_results <- lapply(names(weighted_model_results), function(df_name){
+  
+  # extract data by name 
+  df <- weighted_model_results[[df_name]]
+  
+  # compute metrics for each df in the weighted model results list using eoc_warming metric object
+  metric_df <- metric_calc(df, eoc_warming)
+  
+  # add scenario column
+  metric_df$scenario <- df_name
+  
+  return(metric_df)
+})
+# copy over element names 
+names(eoc_warming_results) <- names(model_weights)
+
+# Merge with model weights to get a data frame with weighted metrics
+weighted_eoc_warming_results <- Map(merge, eoc_warming_results, model_weights, by = "run_number")
+
+# bind list eoc_warming_results to a data frame
+weighted_eoc_warming_df <- do.call(rbind, weighted_eoc_warming_results)
+
+# save the result for future visualization
+saveRDS(weighted_eoc_warming_df, "data/weighted_warming_metrics.RDS")
+
+```
+
+We now have new objects as followed:
+
+1. `eoc_warming_results` - a list of data frames (one for each ECS scenario) that contain metric values for each `run_number`.
+
+2. `weighted_eco_warming_reuslts` - a list of data frames that is identical to `eoc_warming_results` but with an added column containing corresponding likelihood weights for each `run_number`.
+
+3. `weighted_eoc_warming_df` - a long data frame with all metrics and weights for each ECS scenario. This data frame is saved and will be used for visualization.
+
+# Computing Probabilities
+
+We compute probabilities using the likelihood weights and the warming metrics produced for each ECS scenario. The probability calculation sums weights (which total to 1.0) as warming metrics are grouped into bins we define. Here, bins represent ranges of warming that could potentially occur at the end of the century. In this way, the sum of the weights for each bin (warming range) is proportional to the probability of that warming range occurring according to the models response to parameter uncertainty. This step is where model weights become particularly important because a higher weight (representing closer alignment to historical data) will have a larger influence on the total probability of a warming range than an unskilled model (low likelihood based on alignment with historical data).
+
+To compute probabilities we call `prob_calc` for each of the data frame in the `weighted_eoc_warming_results` list.
+
+```{r}
+# define bins that represent the warming ranges of interest
+temp_ranges <- c(0, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, Inf)
+
+# computing probabilities 
+probability_results <- lapply(names(weighted_eoc_warming_results), function(df_name){
+  
+  # copy data based on element name
+  df <- weighted_eoc_warming_results[[df_name]]
+  
+  # run prob_calc
+  prob_result <- prob_calc(df$metric_result,
+                           bins = temp_ranges,
+                           scores = df$mc_weight)
+  
+  # add scenario column 
+  prob_result$scenario <- df_name
+  
+  return(prob_result)
+})
+# copy over element names 
+names(probability_results) <- names(weighted_eoc_warming_results)
+
+# bind probability_results into a data frame
+probability_results_df <- do.call(rbind, probability_results)
+
+# Save full data frame for future visualization
+saveRDS(probability_results_df, "data/probability_results.RDS")
+
+```
+
+The result from this code is an object called `probability_result`, a list of data frames (one for each ECS scenario) that contain the weighted temperature range probabilities. We bind the data frames in this list and save the single large data frame as an .RDS file in the `data` directory.

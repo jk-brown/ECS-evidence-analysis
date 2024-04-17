@@ -21,7 +21,7 @@ We produce PDF curves in a panel using the color palette and then save the figur
 This code will will produce the publication level figure. A simple visualization is available in `02_fitting_andsampling_ecs_distributions.Rmd`.
 
 ```{r}
-ecs_samples_df <- readRDS("data/ecs_samples_from_gamma_distribution.RDS")
+ecs_samples_df <- readRDS("data/ecs_samples_plot_data.RDS")
 
 # copy data to new df
 ecs_df_S1 <- ecs_samples_df

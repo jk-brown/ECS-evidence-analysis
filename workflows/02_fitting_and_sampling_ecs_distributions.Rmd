@@ -63,6 +63,12 @@ ecs_sample_list <- lapply(hyper_param_list, function(evidence) {
                           rate = evidence$estimate["rate"]))
   
 })
+
+# convert to data frame 
+ecs_df <- data.frame(ecs_sample_list)
+
+# save data for supplemental figure script
+saveRDS(ecs_df, "data/ecs_samples_from_gamma_dist.RDS")
 ```
 
 The result is a new list (`ecs_sample_list`) of data frames, one for each evidence scenario, that contains a vector of ECS values sampled from respective gamma distributions. 
@@ -83,7 +89,7 @@ In the data frame `value` contains the unlisted ECS samples from `ecs_sample_lis
 The `evidence` column repeats names of each element in `ecs_sample_list` `n` times. Note: `n` is set to 15,000 for each evidence combination. We remove row names to ensure a clean result.
 
 ```{r}
-ecs_samples_df <- data.frame(
+ecs_sample_df <- data.frame(
   
   value = unlist(ecs_sample_list),
   evidence = rep(names(ecs_sample_list), each = n),
@@ -92,7 +98,7 @@ ecs_samples_df <- data.frame(
 )
 
 # save data for supplemental figure script
-saveRDS(ecs_samples_df, "data/ecs_samples_from_gamma_distribution.RDS")
+saveRDS(ecs_sample_df, "data/ecs_samples_plot_data.RDS")
 ```
 
 The result is a data frame that combines ECS values sampled from gamma distributions for each evidence configuration (15,000 samples x 5 evidence scenarios = 75,000 rows). Each row is labeled with the name of the evidence configuration the value belongs to.   
@@ -101,7 +107,7 @@ Plot ECS samples as a`geom_density` with faceted by `evidence`. We use `geom_den
 
 ```{r}
 ggplot() +
-  geom_density(data = ecs_samples_df,
+  geom_density(data = ecs_sample_df,
                aes(x = value, 
                    color = evidence)) +
   theme_light() +
