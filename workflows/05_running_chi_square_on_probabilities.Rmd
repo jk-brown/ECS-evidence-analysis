@@ -1,0 +1,85 @@
+---
+title: "Chi-square test on warming probabilities of ECS scenarios"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Goal
+
+The goal of this script is to run a chi-square test to determine if there is a statistical difference in warming probabilities produced by the ECS configuration scenarios.
+
+```{r}
+library(reshape2)
+library(tidyverse)
+```
+
+# Data
+
+This analysis requires the `probability_results`. We load this data from the `data` directory.
+
+```{r}
+# load probability data
+options(scipen = 999)
+prob_data <- readRDS("data/probability_results.RDS") %>%
+  rownames_to_column() %>% 
+  select(-rowname) %>% 
+  mutate(scenario = factor(scenario),
+         probability= probability * 100)
+
+```
+
+Upon loading the data we remove `rownames` and convert `scenario` to a factor.
+
+# Run Chi-square test
+
+```{r}
+# Reshape the data into a contingency table format
+contingency_table <- dcast(prob_data, bins ~ scenario, value.var = "probability")
+
+table_split <- split(contingency_table, contingency_table$bins)
+
+
+result <- lapply(table_split, function(table) {
+  
+  values <- table[-1]
+  
+  result <- chisq.test(values)
+  
+  stats <- data.frame(X.squared = result$statistic,
+                      df = result$parameter,
+                      p.value = result$p.value)
+  
+  return(stats)
+})
+
+stats_table <- do.call(rbind, result)
+
+```
+
+```{r}
+# Visualize the data with a bar plot
+library(ggplot2)
+
+# Assuming your data is named 'df'
+# Reshape the data from wide to long format
+df_long <- pivot_longer(contingency_table, -bins, names_to = "scenario", values_to = "probability")
+
+# Create the bar plot
+ggplot(prob_data, aes(x = bins, y = probability, color = scenario, group = scenario)) +
+  geom_point()+
+  geom_line() +
+  labs(title = "Probability Distribution by Scenario",
+       x = "Bins",
+       y = "Probability") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_manual(values = c("Baseline" = "blue", 
+                                "Baseline_Emergent_constraints" = "green", 
+                                "No_Historical" = "red",
+                                "No_Paleoclimate" = "orange",
+                                "No_Process" = "purple"))
+```
+
