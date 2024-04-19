@@ -248,8 +248,6 @@ eoc_warming_results <- lapply(names(weighted_model_results), function(df_name){
   
   return(metric_df)
 })
-# copy over element names 
-names(eoc_warming_results) <- names(model_weights)
 
 # Merge with model weights to get a data frame with weighted metrics
 weighted_eoc_warming_results <- Map(merge, eoc_warming_results, model_weights, by = "run_number")
@@ -263,7 +261,7 @@ We now have new objects as followed:
 
 1. `eoc_warming_results` - a list of data frames (one for each ECS scenario) that contain metric values for each `run_number`.
 
-2. `weighted_eco_warming_reuslts` - a list of data frames that is identical to `eoc_warming_results` but with an added column containing corresponding likelihood weights for each `run_number`.
+2. `weighted_eco_warming_results` - a list of data frames that is identical to `eoc_warming_results` but with an added column containing corresponding likelihood weights for each `run_number`.
 
 # Computing Probabilities
 
@@ -272,6 +270,9 @@ We compute probabilities using the likelihood weights and the warming metrics pr
 To compute probabilities we call `prob_calc` for each of the data frame in the `weighted_eoc_warming_results` list.
 
 ```{r}
+# copy over element names 
+names(weighted_eoc_warming_results) <- names(model_weights)
+
 # define bins that represent the warming ranges of interest
 temp_ranges <- c(0, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, Inf)
 
@@ -291,8 +292,6 @@ probability_results <- lapply(names(weighted_eoc_warming_results), function(df_n
   
   return(prob_result)
 })
-# copy over element names 
-names(probability_results) <- names(weighted_eoc_warming_results)
 
 # Save full data frame for future visualization
 saveRDS(probability_results, "data/probability_results.RDS")
