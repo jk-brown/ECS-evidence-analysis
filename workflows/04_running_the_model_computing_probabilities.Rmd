@@ -214,35 +214,8 @@ weighted_model_results <- Map(
   
 }, model_result, model_weights) # provide the lists to use in our defined Map function.
 
-```
-
-We write a function here that combine the list of weighted results to produce a single, primary long-format data frame of all the ECS configuration scenarios we are interested in analyzing. This is a data frame we save an use to produce future figures. The function takes the list of weighted results, edits the scenario column to reflect the ECS configuration used to produce the result, binds the list to a data frame, and saves the data frame as a .RDS file in the data directory. 
-
-```{r}
-# Function to add a scenario column and save weighted model results
-results_to_save <- function(results, path = "data/new_weighted_data.RDS"){
-    
-  results <- lapply(names(results), function(df_name) {
-  
-  # get the data frame corresponding with the current element name
-  df <- results[[df_name]]
-  
-  # replace scenario values to match the name of the scenario
-  df$scenario <- df_name
-  
-  # return the modified data frame
-  return(df)
-}) 
-
-# bind elements of the model_result list to produce single data frame
-weighted_result_df <- do.call(rbind, results)
-
-# save weighted data frame in data directory
-saveRDS(weighted_result_df, path)
-
-}
-
-results_to_save(weighted_model_results, "data/weighted_model_results.RDS")
+# saving as a list does this work?
+saveRDS(weighted_model_results, "data/weighted_model_results.RDS")
 
 ```
 
@@ -254,11 +227,11 @@ First, we define the metric we are interested in calculating.
 
 ```{r}
 # define metric of interest - end of century (eoc) warming
-eoc_warming <- new_metric(var = GMST(), years = 2090:2100, op = median)
+eoc_warming <- new_metric(var = GMST(), years = 2081:2100, op = median)
 
 ```
 
-We use the newly defined metric object to compute median 2090-2100 warming for each ECS configuration scenario. Additionally, we add scenario names and merge weights for each model. 
+We use the newly defined metric object to compute median 2081-2100 warming for each ECS configuration scenario. Additionally, we add scenario names and merge weights for each model. 
 
 ```{r}
 # build data frame of metric results
@@ -281,11 +254,8 @@ names(eoc_warming_results) <- names(model_weights)
 # Merge with model weights to get a data frame with weighted metrics
 weighted_eoc_warming_results <- Map(merge, eoc_warming_results, model_weights, by = "run_number")
 
-# bind list eoc_warming_results to a data frame
-weighted_eoc_warming_df <- do.call(rbind, weighted_eoc_warming_results)
-
 # save the result for future visualization
-saveRDS(weighted_eoc_warming_df, "data/weighted_warming_metrics.RDS")
+saveRDS(weighted_eoc_warming_results, "data/weighted_warming_metrics.RDS")
 
 ```
 
@@ -294,8 +264,6 @@ We now have new objects as followed:
 1. `eoc_warming_results` - a list of data frames (one for each ECS scenario) that contain metric values for each `run_number`.
 
 2. `weighted_eco_warming_reuslts` - a list of data frames that is identical to `eoc_warming_results` but with an added column containing corresponding likelihood weights for each `run_number`.
-
-3. `weighted_eoc_warming_df` - a long data frame with all metrics and weights for each ECS scenario. This data frame is saved and will be used for visualization.
 
 # Computing Probabilities
 
@@ -326,11 +294,8 @@ probability_results <- lapply(names(weighted_eoc_warming_results), function(df_n
 # copy over element names 
 names(probability_results) <- names(weighted_eoc_warming_results)
 
-# bind probability_results into a data frame
-probability_results_df <- do.call(rbind, probability_results)
-
 # Save full data frame for future visualization
-saveRDS(probability_results_df, "data/probability_results.RDS")
+saveRDS(probability_results, "data/probability_results.RDS")
 
 ```
 
