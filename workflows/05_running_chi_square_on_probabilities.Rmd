@@ -76,7 +76,7 @@ stats_table <- do.call(rbind, result)
 
 ```
 
-The warning produced is concerning. The only time the analysis does not produce the warning is when I don't divide into temperature ranges and simulate p-value. The result is largely uninformative I would say. Tells us that likelihood of certain warming ranges are not impacted by ECS configuration, only on that is close to significant is warming range of 3.5-4 C, where `No_Paleoclimate` may be associated with a higher likelihood of occurrence. 
+The warning produced is concerning. Probably due to the way I am using chi-squared test (splitting the contingency table). The only time the analysis does not produce the warning is when I don't divide into temperature ranges and simulate p-value. The result is largely uninformative I would say. Tells us that likelihood of certain warming ranges are not impacted by ECS configuration, only on that is close to significant is warming range of 3.5-4 C, where `No_Paleoclimate` may be associated with a higher likelihood of occurrence. 
 
 ```{r}
 # Visualize the data with a bar plot
@@ -101,4 +101,5 @@ ggplot(prob_data, aes(x = temperature_range, y = probability, color = scenario, 
                                 "No_Paleoclimate" = "#EBCC2A",
                                 "Baseline_Emergent_constraints" = "#F21A00"))
 ```
+
 
