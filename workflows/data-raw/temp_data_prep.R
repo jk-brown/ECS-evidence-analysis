@@ -9,7 +9,7 @@ library(tidyverse)
 library(matilda)
 
 # Read in data
-hist_temp <- read.csv("data-raw/annual_gmst_averages.csv", stringsAsFactors = F)
+hist_temp <- read.csv("workflows/data-raw/annual_gmst_averages.csv", stringsAsFactors = F)
 
 newnames <- c(year = "timebound_lower", value = "gmst")
 
@@ -54,5 +54,5 @@ normalize_values <- function(observed_data, modeled_data, reference_start_year, 
 hist_temp_norm <- normalize_values(hist_temp, matilda::hector_result, 1961, 1990)
 
 ## Saving .csv of normalized gmst
-write.csv(hist_temp_norm, "data-raw/annual_gmst_normalized.csv", quote = FALSE, row.names = FALSE)
+write.csv(hist_temp_norm, "workflows/data-raw//annual_gmst_normalized.csv", quote = FALSE, row.names = FALSE)
 
