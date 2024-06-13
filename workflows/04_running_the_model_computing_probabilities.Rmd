@@ -45,11 +45,13 @@ The result will be a new core object that can will be a required input to run th
 
 # Generate values for other model parameters
 
+**This needs to be edited** I think for this experiment it will be more straight forward to keep all parameters aside from ECS fixed. This will reduce the complexity that is introduced from parameter interactions and will isolate the affect of the ECS distributions from different ECS evidence configurations. Below are notes that will be edited accordingly and the code chunk in this section will be skipped.
+
 Matilda works by running Hector multiple times to build a perturbed parameter ensemble, thus applying parameter uncertainty to model outputs. We need to produce parameter values to accompany the ECS values we sampled in previous steps of the workflow.
 
-Parameter sets are generated in Matilda using `generate_params`. We use this function to produce `n` initial parameter sets (`init_params`).  
+Parameter sets are generated in Matilda using `generate_params`. We use this function to produce `n` initial parameter sets (`init_params`). In this analysis I do not think I am going to run samples of the other parameters. Instead we can isolate the behavior of Hector to different ECS distributions by using Hector defaults for all parameters aside from ECS.
 
-```{r}
+```{r, eval=FALSE}
 # set seed for reproducible result
 set.seed(123)
 
@@ -93,8 +95,8 @@ We use each of the parameter sets in `parameter_list` to run the model. This pro
 Parallel computing on the local machine is used to make this process as efficient as possible. 
 
 ```{r}
-# split the parameters into chunks for each 'worker'
-parameter_chunks_by_scenario <- lapply(parameter_list, function(df) {
+# split the ecs samples into chunks for each 'worker'
+ecs_chunks_by_scenario <- lapply(ecs_sample_list, function(df) {
   
   split(df, 1:100)
   
@@ -107,7 +109,7 @@ detectCores()
 cl <- makeCluster(detectCores() - 1)
 
 # export required functions and objects to run the model
-clusterExport(cl, c("parameter_chunks_by_scenario",
+clusterExport(cl, c("ecs_chunks_by_scenario",
                     "ini_245",
                     "newcore",
                     "reset",
@@ -116,13 +118,15 @@ clusterExport(cl, c("parameter_chunks_by_scenario",
 start_time <- Sys.time()
 
 # run the model with parLapply
-model_result <- parLapply(cl, parameter_chunks_by_scenario, function(evidence_scenario) {
+model_result <- parLapply(cl, ecs_chunks_by_scenario, function(evidence_scenario) {
   
   # initialize a model core for each loop iteration
   core <- newcore(ini_245)
   
   # run the model for each parameter chunk
   result_list <- lapply(evidence_scenario, function(chunk) {
+    
+    reset(core)
     
     iterate_model(core = core,
                   params = chunk,
